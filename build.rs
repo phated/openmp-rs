@@ -10,12 +10,14 @@ fn main() {
     let comp = cc.get_compiler();
 
     if comp.is_like_msvc() {
+        println!("cargo:flag=/openmp");
         println!("cargo:rustc-link-lib=vcomp");
         if wants_static {
             println!("cargo:warning=Visual Studio doesn't support static OpenMP");
         }
         return;
     }
+    println!("cargo:flag=-fopenmp");
 
     let mut compiler_libs = Vec::new();
     let out = String::from_utf8(comp.to_command().output().unwrap().stdout).unwrap();
