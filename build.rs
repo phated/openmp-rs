@@ -4,6 +4,10 @@ use std::path::PathBuf;
 
 fn main() {
     let wants_static = cfg!(feature = "static") || env::var_os("OPENMP_STATIC").is_some();
+    println!("cargo:rerun-if-env-changed=CC");
+    println!("cargo:rerun-if-env-changed=OPENMP_STATIC");
+    println!("cargo:rerun-if-changed=src/ffi.rs");
+    println!("cargo:rerun-if-changed=src/lib.rs");
 
     let mut cc = cc::Build::new();
     cc.flag("-print-search-dirs");
