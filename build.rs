@@ -13,6 +13,20 @@ fn main() {
     cc.flag("-print-search-dirs");
     let comp = cc.get_compiler();
 
+    let mut compiler_libs = Vec::new();
+    let out = String::from_utf8(comp.to_command().output().expect("running compiler to get the lib paths").stdout).unwrap();
+    for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
+        let line = line.trim_left_matches("libraries: =");
+        compiler_libs.extend(env::split_paths(line));
+    }
+
+    // cc-rs often can't really tell them apart
+    let is_clang = if comp.is_like_gnu() {
+        compiler_libs.iter().filter_map(|p| p.to_str()).any(|path| path.contains("/clang/"))
+    } else {
+        comp.is_like_clang()
+    };
+
     if comp.is_like_msvc() {
         println!("cargo:flag=/openmp");
         println!("cargo:rustc-link-lib=vcomp");
@@ -21,20 +35,13 @@ fn main() {
         }
         return;
     }
-    if comp.is_like_clang() && !comp.is_like_gnu() {
+    if is_clang {
         println!("cargo:warning=Clang may not support OpenMP. Try using GCC instead (`export CC=<real-gcc-exe>`)");
     }
     println!("cargo:flag=-fopenmp");
 
-    let mut compiler_libs = Vec::new();
-    let out = String::from_utf8(comp.to_command().output().expect("running compiler to get the lib paths").stdout).unwrap();
-    for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
-        let line = line.trim_left_matches("libraries: =");
-        compiler_libs.extend(env::split_paths(line));
-    }
-
     if wants_static {
-        if comp.is_like_gnu() && !comp.is_like_clang() {
+        if comp.is_like_gnu() && !is_clang {
             search_path_for("libgcc_eh.a", &compiler_libs);
             println!("cargo:rustc-link-lib=static=gcc_eh");
         }
