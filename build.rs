@@ -17,10 +17,13 @@ fn main() {
         }
         return;
     }
+    if comp.is_like_clang() && !comp.is_like_gnu() {
+        println!("cargo:warning=Clang may not support OpenMP. Try using GCC instead (`export CC=<real-gcc-exe>`)");
+    }
     println!("cargo:flag=-fopenmp");
 
     let mut compiler_libs = Vec::new();
-    let out = String::from_utf8(comp.to_command().output().unwrap().stdout).unwrap();
+    let out = String::from_utf8(comp.to_command().output().expect("running compiler to get the lib paths").stdout).unwrap();
     for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
         let line = line.trim_left_matches("libraries: =");
         compiler_libs.extend(env::split_paths(line));
@@ -47,5 +50,5 @@ fn search_path_for(name: &str, in_paths: &[PathBuf]) {
             return;
         }
     }
-    println!("cargo:warning=Unable to find library {} in {:?}", name, in_paths);
+    println!("cargo:warning=Unable to find library {} for {} in {:?}", name, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
 }
