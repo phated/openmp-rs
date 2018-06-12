@@ -14,7 +14,18 @@ fn main() {
     let comp = cc.get_compiler();
 
     let mut compiler_libs = Vec::new();
-    let out = String::from_utf8(comp.to_command().output().expect("running compiler to get the lib paths").stdout).unwrap();
+    let mut cmd = comp.to_command();
+    let out = match cmd.output() {
+        Ok(out) => String::from_utf8(out.stdout).unwrap(),
+        Err(err) => {
+            println!("cargo:warning=Error when setting up OpenMP via openmp-sys crate. Your C compiler doesn't seem to work. The command:\n\
+                cargo:warning={:?}\n\
+                cargo:warning=Failed because: {}\n\
+                cargo:warning=(the PATH is: {:?}; CC is {:?})", cmd, err, env::var("PATH"), env::var("CC"));
+            "".to_string()
+        }
+    };
+
     for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
         let line = line.trim_left_matches("libraries: =");
         compiler_libs.extend(env::split_paths(line));
@@ -36,7 +47,8 @@ fn main() {
         return;
     }
     if is_clang {
-        println!("cargo:warning=Clang may not support OpenMP. Try using GCC instead (`export CC=<real-gcc-exe>`)");
+        println!("cargo:warning=The build is configured to use Clang, but Clang doesn't support OpenMP. The build may fail because of missing libgomp.");
+        println!("cargo:warning=Install GCC and run `export CC=<path-to-real-gcc-exe>`");
     }
     println!("cargo:flag=-fopenmp");
 
@@ -61,5 +73,5 @@ fn search_path_for(name: &str, in_paths: &[PathBuf]) {
             return;
         }
     }
-    println!("cargo:warning=Unable to find library {} for {} in {:?}", name, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
+    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", name, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
 }
