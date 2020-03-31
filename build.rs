@@ -1,4 +1,3 @@
-extern crate cc;
 use std::env;
 use std::path::PathBuf;
 
@@ -27,7 +26,7 @@ fn main() {
     };
 
     for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
-        let line = line.trim_left_matches("libraries: =");
+        let line = line.trim_start_matches("libraries: =");
         compiler_libs.extend(env::split_paths(line));
     }
 
@@ -47,7 +46,7 @@ fn main() {
         return;
     }
     if is_clang {
-        println!("cargo:warning=The build is configured to use Clang, but Clang doesn't support OpenMP. The build may fail because of missing libgomp.");
+        println!("cargo:warning=The build is configured to use Clang, but Clang doesn't support OpenMP. The build will fail because of missing libgomp.");
         println!("cargo:warning=Install GCC and run `export CC=<path-to-real-gcc-exe>`");
     }
     println!("cargo:flag=-fopenmp");
