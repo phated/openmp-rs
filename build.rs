@@ -58,7 +58,6 @@ fn main() {
     if wants_static {
         if comp.is_like_gnu() && !is_clang {
             find_and_link(&["gcc_eh"], true, &compiler_libs);
-
         }
         find_and_link(lib_names, true, &compiler_libs);
     } else {
@@ -82,5 +81,6 @@ fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf]) {
             }
         }
     }
-    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", names[0].1, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
+    let cc = env::var("CC").unwrap_or_else(|_| "cc".to_owned());
+    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", names[0].1, cc, in_paths);
 }
