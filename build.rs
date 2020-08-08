@@ -25,6 +25,11 @@ fn main() {
         }
     };
 
+    let libomp = PathBuf::from("/usr/local/opt/libomp/lib");
+    if libomp.exists() {
+        compiler_libs.push(libomp);
+    }
+
     for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
         let line = line.trim_start_matches("libraries: =");
         compiler_libs.extend(env::split_paths(line));
@@ -44,33 +49,38 @@ fn main() {
             println!("cargo:warning=Visual Studio doesn't support static OpenMP");
         }
         return;
+    } else {
+        println!("cargo:flag=-fopenmp");
     }
-    if is_clang {
-        println!("cargo:warning=The build is configured to use Clang, but Clang doesn't support OpenMP. The build will fail because of missing libgomp.");
-        println!("cargo:warning=Install GCC and run `export CC=<path-to-real-gcc-exe>`");
-    }
-    println!("cargo:flag=-fopenmp");
+
+    let lib_names = if is_clang {&["omp", "iomp", "gomp"][..]} else {&["gomp"]};
 
     if wants_static {
         if comp.is_like_gnu() && !is_clang {
-            search_path_for("libgcc_eh.a", &compiler_libs);
-            println!("cargo:rustc-link-lib=static=gcc_eh");
-        }
-        search_path_for("libgomp.a", &compiler_libs);
-        println!("cargo:rustc-link-lib=static=gomp");
-    } else {
-        search_path_for(&format!("{}gomp{}", env::consts::DLL_PREFIX, env::consts::DLL_SUFFIX), &compiler_libs);
-        println!("cargo:rustc-link-lib=gomp");
-    };
+            find_and_link(&["gcc_eh"], true, &compiler_libs);
 
+        }
+        find_and_link(lib_names, true, &compiler_libs);
+    } else {
+        find_and_link(lib_names, false, &compiler_libs);
+    };
 }
 
-fn search_path_for(name: &str, in_paths: &[PathBuf]) {
+fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf]) {
+    let names = lib_names.iter().copied().map(|lib_name| if statik {
+        (lib_name, format!("lib{}.a", lib_name))
+    } else {
+        (lib_name, format!("{}{}{}", env::consts::DLL_PREFIX, lib_name, env::consts::DLL_SUFFIX))
+    }).collect::<Vec<_>>();
+
     for path in in_paths {
-        if path.join(name).exists() {
-            println!("cargo:rustc-link-search=native={}", path.display());
-            return;
+        for (name, file) in &names {
+            if path.join(file).exists() {
+                println!("cargo:rustc-link-search=native={}", path.display());
+                println!("cargo:rustc-link-lib{}={}", if statik {"=static"} else {""}, name);
+                return;
+            }
         }
     }
-    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", name, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
+    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", names[0].1, env::var("CC").unwrap_or("cc".to_owned()), in_paths);
 }
