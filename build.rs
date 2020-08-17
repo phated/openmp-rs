@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let wants_static = cfg!(feature = "static") || env::var_os("OPENMP_STATIC").is_some();
@@ -8,26 +8,28 @@ fn main() {
     println!("cargo:rerun-if-changed=src/ffi.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
 
-    let mut cc = cc::Build::new();
-    cc.flag("-print-search-dirs");
-    let comp = cc.get_compiler();
-
     let mut compiler_libs = Vec::new();
+    env::set_var("LANG", "C");
+    let comp = cc::Build::new()
+        .flag("-v")
+        .flag("-print-search-dirs")
+        .get_compiler();
     let mut cmd = comp.to_command();
-    let out = match cmd.output() {
-        Ok(out) => String::from_utf8(out.stdout).unwrap(),
+    let (out, err) = match cmd.output() {
+        Ok(out) => (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap()),
         Err(err) => {
             println!("cargo:warning=Error when setting up OpenMP via openmp-sys crate. Your C compiler doesn't seem to work. The command:\n\
                 cargo:warning={:?}\n\
                 cargo:warning=Failed because: {}\n\
                 cargo:warning=(the PATH is: {:?}; CC is {:?})", cmd, err, env::var("PATH"), env::var("CC"));
-            "".to_string()
+            ("".to_string(), "".to_string())
         }
     };
 
-    let libomp = PathBuf::from("/usr/local/opt/libomp/lib");
-    if libomp.exists() {
-        compiler_libs.push(libomp);
+    if let Ok(library_path) = env::var("LIBRARY_PATH") {
+        for lib_dir in env::split_paths(&library_path) {
+            compiler_libs.push(Path::new(&lib_dir).to_path_buf());
+        }
     }
 
     for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
@@ -36,11 +38,16 @@ fn main() {
     }
 
     // cc-rs often can't really tell them apart
-    let is_clang = if comp.is_like_gnu() {
-        compiler_libs.iter().filter_map(|p| p.to_str()).any(|path| path.contains("/clang/"))
-    } else {
-        comp.is_like_clang()
-    };
+    let is_clang = err.contains("clang") || comp.is_like_clang();
+
+    if is_clang && err.contains("apple-darwin") {
+        for lib_dir in &["/opt/local/lib", "/usr/local/lib"] {
+            let lib_dir = Path::new(lib_dir);
+            if lib_dir.exists() {
+                compiler_libs.push(lib_dir.to_path_buf());
+            }
+        }
+    }
 
     if comp.is_like_msvc() {
         println!("cargo:flag=/openmp");
@@ -49,6 +56,8 @@ fn main() {
             println!("cargo:warning=Visual Studio doesn't support static OpenMP");
         }
         return;
+    } else if is_clang && err.starts_with("Apple") {
+        println!("cargo:flag=-Xpreprocessor -fopenmp");
     } else {
         println!("cargo:flag=-fopenmp");
     }
