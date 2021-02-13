@@ -1,6 +1,19 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+struct Womp {
+    flag: &'static str,
+    link: Vec<String>,
+}
+
+struct Compiler {
+    is_msvc: bool,
+    is_clang: bool,
+    is_gcc: bool,
+    is_apple_clang: bool,
+    search_paths: Vec<PathBuf>,
+}
+
 fn main() {
     let wants_static = cfg!(feature = "static") || env::var_os("OPENMP_STATIC").is_some();
     println!("cargo:rerun-if-env-changed=CC");
@@ -8,6 +21,21 @@ fn main() {
     println!("cargo:rerun-if-changed=src/ffi.rs");
     println!("cargo:rerun-if-changed=src/lib.rs");
 
+    let comp = probe_compiler();
+    let womp = find_openmp(wants_static, comp);
+
+    println!("cargo:flag={}", womp.flag);
+    if let Ok(s) = env::join_paths(&womp.link) {
+        if let Some(s) = s.to_str() {
+            println!("cargo:cargo_link_instructions={}", s);
+        }
+    }
+    for l in &womp.link {
+        println!("cargo:{}", l);
+    }
+}
+
+fn probe_compiler() -> Compiler {
     let mut compiler_libs = Vec::new();
     env::set_var("LANG", "C");
     let comp = cc::Build::new()
@@ -32,13 +60,13 @@ fn main() {
         }
     }
 
-    for line in out.split('\n').filter(|l| l.starts_with("libraries: =")) {
-        let line = line.trim_start_matches("libraries: =");
+    for line in out.split('\n').filter_map(|l| l.strip_prefix("libraries: =")) {
         compiler_libs.extend(env::split_paths(line));
     }
 
     // cc-rs often can't really tell them apart
     let is_clang = err.contains("clang") || comp.is_like_clang();
+    let is_apple_clang = is_clang && err.starts_with("Apple");
 
     if is_clang && err.contains("apple-darwin") {
         for lib_dir in &["/opt/local/lib", "/usr/local/lib"] {
@@ -48,33 +76,48 @@ fn main() {
             }
         }
     }
-
-    if comp.is_like_msvc() {
-        println!("cargo:flag=/openmp");
-        println!("cargo:rustc-link-lib=vcomp");
-        if wants_static {
-            println!("cargo:warning=Visual Studio doesn't support static OpenMP");
-        }
-        return;
-    } else if is_clang && err.starts_with("Apple") {
-        println!("cargo:flag=-Xpreprocessor -fopenmp");
-    } else {
-        println!("cargo:flag=-fopenmp");
+    Compiler {
+        is_msvc: comp.is_like_msvc(),
+        is_gcc: comp.is_like_gnu() && !is_clang,
+        is_clang,
+        is_apple_clang,
+        search_paths: compiler_libs,
     }
-
-    let lib_names = if is_clang {&["omp", "iomp", "gomp"][..]} else {&["gomp"]};
-
-    if wants_static {
-        if comp.is_like_gnu() && !is_clang {
-            find_and_link(&["gcc_eh"], true, &compiler_libs);
-        }
-        find_and_link(lib_names, true, &compiler_libs);
-    } else {
-        find_and_link(lib_names, false, &compiler_libs);
-    };
 }
 
-fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf]) {
+fn find_openmp(wants_static: bool, comp: Compiler) -> Womp {
+    if comp.is_msvc {
+        if wants_static {
+            println!("cargo:warning=Visual Studio doesn't support static OpenMP. Ship vcomp.dll");
+        }
+        return Womp {
+            flag: "/openmp",
+            link: vec!["rustc-link-lib=vcomp".into()],
+        }
+    }
+
+    let flag = if comp.is_apple_clang {
+        "-Xpreprocessor -fopenmp"
+    } else {
+        "-fopenmp"
+    };
+
+    let mut out_libs = vec![];
+
+    if wants_static && comp.is_gcc {
+        find_and_link(&["gcc_eh"], true, &comp.search_paths, &mut out_libs);
+    }
+
+    let lib_names = if comp.is_clang {&["omp", "iomp", "gomp"][..]} else {&["gomp"]};
+    find_and_link(lib_names, wants_static, &comp.search_paths, &mut out_libs);
+
+    Womp {
+        flag,
+        link: out_libs,
+    }
+}
+
+fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf], out: &mut Vec<String>) {
     let names = lib_names.iter().copied().map(|lib_name| if statik {
         (lib_name, format!("lib{}.a", lib_name))
     } else {
@@ -84,8 +127,8 @@ fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf]) {
     for path in in_paths {
         for (name, file) in &names {
             if path.join(file).exists() {
-                println!("cargo:rustc-link-search=native={}", path.display());
-                println!("cargo:rustc-link-lib{}={}", if statik {"=static"} else {""}, name);
+                out.push(format!("rustc-link-search=native={}", path.display()));
+                out.push(format!("rustc-link-lib{}={}", if statik {"=static"} else {""}, name));
                 return;
             }
         }
