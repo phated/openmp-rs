@@ -106,6 +106,12 @@ fn find_openmp(wants_static: bool, comp: Compiler) -> Womp {
 
     if wants_static && comp.is_gcc {
         find_and_link(&["gcc_eh"], true, &comp.search_paths, &mut out_libs);
+        let target = std::env::var("TARGET").unwrap();
+        if target == "aarch64-apple-darwin" {
+            // gcc-11 on M1 uses ___aarch64_ldadd4_acq_rel due to -m outline-atomics used to build libgomp
+            // so it needs it from libgcc.a (sadly, libatomic.a alone is not enough)
+            find_and_link(&["gcc"], true, &comp.search_paths, &mut out_libs);
+        }
     }
 
     let lib_names = if comp.is_clang {&["omp", "iomp", "gomp"][..]} else {&["gomp"]};
