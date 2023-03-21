@@ -72,9 +72,9 @@ fn probe_compiler() -> Compiler {
 
     // cc-rs often can't really tell them apart
     let is_clang = err.contains("clang") || comp.is_like_clang();
-    let is_apple_clang = is_clang && err.starts_with("Apple");
+    let is_apple_clang = is_clang && out.starts_with("Apple");
 
-    if is_clang && err.contains("apple-darwin") {
+    if is_clang && out.contains("apple-darwin") {
         if let Some(brew_prefix) = find_brew_prefix() {
             let lib_dir = Path::new(&brew_prefix);
             if lib_dir.exists() {
