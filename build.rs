@@ -44,7 +44,10 @@ fn probe_compiler() -> Compiler {
         .get_compiler();
     let mut cmd = comp.to_command();
     let (out, err) = match cmd.output() {
-        Ok(out) => (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap()),
+        Ok(out) => (
+            String::from_utf8(out.stdout).unwrap(),
+            String::from_utf8(out.stderr).unwrap(),
+        ),
         Err(err) => {
             println!("cargo:warning=Error when setting up OpenMP via openmp-sys crate. Your C compiler doesn't seem to work. The command:\n\
                 cargo:warning={:?}\n\
@@ -60,7 +63,10 @@ fn probe_compiler() -> Compiler {
         }
     }
 
-    for line in out.split('\n').filter_map(|l| l.strip_prefix("libraries: =")) {
+    for line in out
+        .split('\n')
+        .filter_map(|l| l.strip_prefix("libraries: ="))
+    {
         compiler_libs.extend(env::split_paths(line));
     }
 
@@ -93,7 +99,7 @@ fn find_openmp(wants_static: bool, comp: Compiler) -> Womp {
         return Womp {
             flag: "/openmp",
             link: vec!["rustc-link-lib=vcomp".into()],
-        }
+        };
     }
 
     let flag = if comp.is_apple_clang {
@@ -114,7 +120,11 @@ fn find_openmp(wants_static: bool, comp: Compiler) -> Womp {
         }
     }
 
-    let lib_names = if comp.is_clang {&["omp", "iomp", "gomp"][..]} else {&["gomp"]};
+    let lib_names = if comp.is_clang {
+        &["omp", "iomp", "gomp"][..]
+    } else {
+        &["gomp"]
+    };
     find_and_link(lib_names, wants_static, &comp.search_paths, &mut out_libs);
 
     Womp {
@@ -124,21 +134,42 @@ fn find_openmp(wants_static: bool, comp: Compiler) -> Womp {
 }
 
 fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf], out: &mut Vec<String>) {
-    let names = lib_names.iter().copied().map(|lib_name| if statik {
-        (lib_name, format!("lib{}.a", lib_name))
-    } else {
-        (lib_name, format!("{}{}{}", env::consts::DLL_PREFIX, lib_name, env::consts::DLL_SUFFIX))
-    }).collect::<Vec<_>>();
+    let names = lib_names
+        .iter()
+        .copied()
+        .map(|lib_name| {
+            if statik {
+                (lib_name, format!("lib{}.a", lib_name))
+            } else {
+                (
+                    lib_name,
+                    format!(
+                        "{}{}{}",
+                        env::consts::DLL_PREFIX,
+                        lib_name,
+                        env::consts::DLL_SUFFIX
+                    ),
+                )
+            }
+        })
+        .collect::<Vec<_>>();
 
     for path in in_paths {
         for (name, file) in &names {
             if path.join(file).exists() {
                 out.push(format!("rustc-link-search=native={}", path.display()));
-                out.push(format!("rustc-link-lib{}={}", if statik {"=static"} else {""}, name));
+                out.push(format!(
+                    "rustc-link-lib{}={}",
+                    if statik { "=static" } else { "" },
+                    name
+                ));
                 return;
             }
         }
     }
     let cc = env::var("CC").unwrap_or_else(|_| "cc".to_owned());
-    println!("cargo:warning=openmp-sys is unable to find library {} for {} in {:?}", names[0].1, cc, in_paths);
+    println!(
+        "cargo:warning=openmp-sys is unable to find library {} for {} in {:?}",
+        names[0].1, cc, in_paths
+    );
 }
