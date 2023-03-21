@@ -75,8 +75,8 @@ fn probe_compiler() -> Compiler {
     let is_apple_clang = is_clang && err.starts_with("Apple");
 
     if is_clang && err.contains("apple-darwin") {
-        for lib_dir in &["/opt/local/lib", "/usr/local/lib"] {
-            let lib_dir = Path::new(lib_dir);
+        if let Some(brew_prefix) = find_brew_prefix() {
+            let lib_dir = Path::new(&brew_prefix);
             if lib_dir.exists() {
                 compiler_libs.push(lib_dir.to_path_buf());
             }
@@ -172,4 +172,19 @@ fn find_and_link(lib_names: &[&str], statik: bool, in_paths: &[PathBuf], out: &m
         "cargo:warning=openmp-sys is unable to find library {} for {} in {:?}",
         names[0].1, cc, in_paths
     );
+}
+
+fn find_brew_prefix() -> Option<String> {
+    let output = std::process::Command::new("brew")
+        .arg("--prefix")
+        .stdout(std::process::Stdio::piped())
+        .output();
+
+    match output {
+        Ok(output) => match String::from_utf8(output.stdout) {
+            Ok(stdout) => Some(stdout.trim().to_string()),
+            Err(_) => None,
+        },
+        Err(_) => None,
+    }
 }
